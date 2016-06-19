@@ -29,6 +29,8 @@ start:
 ; konkretnie  DISK - READ SECTOR(S) INTO MEMORY
 
  mov ax, 0x2000 ; segment = 2000, offset = 0000
+ mov es, ax      ; adres pod jaki chcemy wrzucic 
+ xor bx, bx      ; bx = 0
 
  mov ah, 2
  mov al, 0xcc	 ; ile sektorow chcemy wczytac, wczytamy stage2, sektor ok 512B
@@ -40,8 +42,6 @@ start:
  mov ch, 0	 ; 3*512 = 1218 (stage2)
  mov cl, 2	 ; sektory liczymy od 1
  mov dh, 0
- mov es, ax	 ; adres pod jaki chcemy wrzucic 
- xor bx, bx	 ; bx = 0
  int 13h
 
  ; jmp to stage2
