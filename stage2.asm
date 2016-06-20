@@ -60,14 +60,45 @@ start_32:
  [bits 32]
 
  ; przeladowanie rejestru DS
- mov ax, 0x10 ; 0x10 bo wczesniej tak zadeklarowalismy
+ mov ax, 0x10 ; 0x10 gdt_idx (moze byc 00, 01, 10, 11)
  mov ds, ax
  mov es, ax
  mov ss, ax
 
- lea eax, [0xb8000]
- mov dword [eax], 0x41414141
+ ;lea eax, [0xb8000]
+ ;mov dword [eax], 0x41414141
  
+ ; wlaczenie 64biy
+ ; wrzucamy adres tablicy stronnicowania do cr3
+ mov eax, (PML4 - $$) + 0x20000
+ mov cr3, eax
+
+ ; wlaczanie PAE
+ mov eax, cr4
+ or eax, 1 << 5
+ mov cr4, eax
+
+ mov ecx, 0xC0000080 ; EFER, podajemy nr rejestru w ECX
+ rdmsr ; msr zostaje wrzucony do eax (jego nr podalem wyzej)
+ or eax, 1 << 8 ; ustawiam 8 bit
+ wrmsr ; wrzucam z powrotem zawartosc eax do msr
+
+ ; wlaczamy stronnicowanie
+ mov eax, cr0
+ or eax, 1 << 31
+ mov cr0, eax
+
+ lgdt [GDT64_addr + 0x20000]
+ jmp dword 0x8:(0x20000 + start64)
+
+start64:
+ ; tu zaczyna sie kod 64bitowy
+ [bits 64]
+ mov rax, 0xb8000
+ mov rdx, 0x4141414141414141
+ mov [rax], rdx
+
+
  jmp $
 
  GDT_addr:
@@ -96,5 +127,49 @@ start_32:
   db 0, 0
  GDT_end:
 
+ ; MSR - rejestry do konfiguracji procesora, adresuje sie je za pomoca nr
+ ; paging - dostajemy do dyspozycji pamiec wirtualna, po polsku stronnicowanie
+ ; paging pozwala na jakas ochrone uprawnien pamieci np do odczytu, zapisu
+ ; adres w 64bitowym trybie maja 48bitow, gorne bity za zazwyczaj wyzerowane
+ ; zaczynamy od tworzenia gdt-64bit, jest takie same tylko ze zmienia sie 
+ ; kilka bitow
 
-;times 1234 db 0x57
+
+ GDT64_addr:
+ dw (GDT64_end - GDT64) - 1 ; maska
+ dd 0x20000 + GDT64
+
+ times (32 - ($ - $$) % 32) db 0 ; wyrownyjemy tab do 32 bajtow
+ ; jesli chcemy debugowac to wrzucamy 0xcc, jest to int3 czyli przerwanie debug
+ GDT64:
+  ; sklada sie z dwoch 32bitowych slow (manual, p. 97)
+
+  ; null segment
+  dd 0, 0
+
+  ; code segment
+  dd 0xffff ; segment limit
+  ; 21 bit zapalamy, 22 bit gasimy
+  dd (10 << 8) | (1 << 12) | (1 << 15) | (0x0f << 16) | (1 << 21) | (1 << 23)
+
+  ; data segment
+  dd 0xffff
+  dd (2 << 8) | (1 << 12) | (1 << 15) | (0x0f << 16) | (1 << 22) | (1 << 23)
+
+  ; null segment
+  db 0, 0
+ GDT64_end:
+
+; stronnicowanie/paging
+; ustawianie pml4
+times (4096 - ($ - $$) % 4096) db 0 ; wyrownanie do 4 KB || && - current section
+
+PML4:
+dq 1 | (1 << 1) | (PDPTE - $$ + 0x20000) ; pdpte to wskaznik do kolejnej czesci
+times 511 dq 0
+
+;tu tez wciaz wszystko wyrownane do 4 KB
+
+PDPTE:
+dq 1 | (1 << 1) | (1 << 7)
+times 511 dq 0
