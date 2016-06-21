@@ -94,12 +94,71 @@ start_32:
 start64:
  ; tu zaczyna sie kod 64bitowy
  [bits 64]
- mov rax, 0xb8000
- mov rdx, 0x4141414141414141
- mov [rax], rdx
+ ; przeladowanie rejestru DS
+ mov ax, 0x10 ; 0x10 gdt_idx (moze byc 00, 01, 10, 11)
+ mov ds, ax
+ mov es, ax
+ mov ss, ax
+
+ ;mov rax, 0xb8000
+ ;mov rdx, 0x4141414141414141
+ ;mov [rax], rdx
 
 
- jmp $
+ ; Loader ELF - pliku wykonywalnego linuxowego
+loader:
+ mov rsi, [0x20000 + kernel64 + 0x20] ; wrzucamy gdzie zaczyna sie nasz kernel
+				      ; + offset (phoff) z naglowku ELF
+ add rsi, 0x20000 + kernel64 ; poczatek pliku
+ 
+ movzx ecx, word[0x20000 + kernel64 + 0x38] ; phnum, liczba sekcji w pliku
+					    ; .code, .data, .bss itd
+ cld ; clear direction flag, zeby instrukcja movsb dobrze dzialala
+
+ xor r14, r14 ; first pt_load pv_vaddr
+
+ .ph_loop:
+   mov eax, [rsi + 0]
+   cmp eax, 1 ; sprawdzamy czy rsi to pt_load
+   jne .next
+
+   ; kopiowanie segmentu
+   mov r8d, [rsi + 8] ; p_offset
+   mov r9d, [rsi + 0x10] ; p_vaddr
+   mov r10d, [rsi + 0x20] ; p_filesz
+
+   test r14, r14 ; spr czy r14 = 0
+   jnz .skip
+   mov r14, r9 ; przy pierwszym przejscu wykona sie, pozniej juz nie
+   .skip:
+
+   ; backup
+   mov rbp, rsi
+   mov r15, rcx
+
+   lea rsi, [0x20000 + kernel64 + r8d] ; wrzucamy gdzie dane sa
+   mov rdi, r9 ; bo jest tam informacja ile danych trzeba skopiowac
+   mov rcx, r10
+   rep movsb
+
+   mov rcx, r15
+   mov rsi, rbp
+   .next:
+   loop .ph_loop
+
+
+ 
+; tam gdzie wrzucamy kernel, cala przestrzen, wszystko powinno byc wyzerowane
+
+ ; skocz do EP(entrypointing)
+ mov rax, [0x20000 + kernel64 + 0x18]
+ mov rdi, r14 ; rdi pierwszy parametr funkcji
+
+ ; fix stack
+ mov rsp, 0x30f000
+
+ call rax ; skaczemy do naszego pliku kernela
+
 
  GDT_addr:
  dw (GDT_end - GDT) - 1 ; maska
@@ -170,6 +229,13 @@ times 511 dq 0
 
 ;tu tez wciaz wszystko wyrownane do 4 KB
 
+; strony maja po 1GB bo tak zdecydowalem
+
 PDPTE:
 dq 1 | (1 << 1) | (1 << 7)
 times 511 dq 0
+
+; label przyda sie do okreslenia odresu pod ktorym zaczyna sie kernel
+; poniewaz jest on doklejany od razu po stage2
+times (512 - ($ - $$) % 512) db 0
+kernel64:

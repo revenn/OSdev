@@ -4,7 +4,8 @@ import subprocess
 
 def fix_stage1_size():
   stage2_size = os.stat("stage2").st_size
-  stage2_size = (stage2_size + 511) / 512 ; #wyrownanie, zaokroaglenie w gore
+  kernel_size = os.stat("kernel64").st_size
+  stage2_size = (stage2_size + kernel_size + 511) / 512 ; #wyrownanie, zaokroaglenie w gore
 
   if stage2_size >= 255:
     raise Exception("stage2 too large")
@@ -18,6 +19,8 @@ def fix_stage1_size():
     f.write(d)
 
 cmds_to_run = [
+    "gcc kernel.c -std=c99 -nostdlib -o kernel64",
+    "strip kernel64",   #usuwa symbole debugowania
     "nasm stage1.asm",
     "nasm stage2.asm",    
     fix_stage1_size   
@@ -25,7 +28,8 @@ cmds_to_run = [
 
 files_to_img = [
     "stage1",
-    "stage2"
+    "stage2",
+    "kernel64"
 ]
 
 for cmd in cmds_to_run:
